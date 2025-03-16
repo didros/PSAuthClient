@@ -71,6 +71,10 @@ function New-Oauth2JwtAssertion {
         $client_secret
     )
     $jwtHeader = @{ alg = "RS256"; typ = "JWT" }
+    # Custom typ
+    if ( $typ ) {
+        $jwtHeader.typ = $typ
+    }
     # certificate properties
     if ( $client_certificate ) {
         if ( $client_certificate.GetType().Name -notmatch "^X509Certificate|^RSA" ) {
