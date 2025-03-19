@@ -17,7 +17,7 @@ foreach ( $package in ([XML](Get-Content "$basePath\packages.config")).packages.
     }
     foreach ( $runtime in (Get-ChildItem "$basePath\packages\$($package.id).$($package.version)\runtimes" -Directory) ) { 
         Write-Debug $runtime
-        copy-item -Recurse -Path  "$runtime\native\" -Destination "$releasePath\$($package.id).$($package.version)\runtimes\$($runtime.name)\"
+        copy-item -Recurse -Path  "$runtime\native\" -Destination "$releasePath\$($package.id).$($package.version)\runtimes\$($runtime.name)\" -Force
     }
 }
 

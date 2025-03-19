@@ -86,58 +86,77 @@ function Invoke-OAuth2AuthorizationEndpoint {
         [hashtable]$customParameters,
 
         [parameter( Mandatory = $false)]
-        [string]$userAgent
+        [string]$userAgent,
+
+        [parameter( Mandatory = $false)]
+        [bool]$PAR = $false
     )
 
-    # Determine which protocol is being used.
-    if ( $response_type -eq "token" -or ($response_type -match "^code$" -and $scope -notmatch "openid" ) ) { $protocol = "OAUTH"; $nonce = $null }
-    else { $protocol = "OIDC"
-        # ensure scope contains openid for oidc flows
-        if ( $scope -notmatch "openid" ) { Write-Warning "Invoke-OAuth2AuthorizationRequest: Added openid scope to request (OpenID requirement)."; $scope += " openid" }
-        # ensure nonce is present for id_token validation
-        if ( $customParameters -and $customParameters.Keys -match "^nonce$" ) { [string]$nonce = $customParameters["nonce"] }
-        else { [string]$nonce = Get-RandomString -Length ( (32..64) | get-random ) }
-    }
+    if ( ! $PAR ) {
 
-    # state for CSRF protection (optional, but recommended)
-    if ( $customParameters -and $customParameters.Keys -match "^state$" ) { [string]$state = $customParameters["state"] }
-    else { [string]$state = Get-RandomString -Length ( (16..21) | get-random ) }
-    
-    # building the request uri
-    Add-Type -AssemblyName System.Web -ErrorAction Stop
-    $uri += "?response_type=$($response_type)&client_id=$([System.Web.HttpUtility]::UrlEncode($client_id))&state=$([System.Web.HttpUtility]::UrlEncode($state))"
-    if ( $redirect_uri ) { $uri += "&redirect_uri=$([System.Web.HttpUtility]::UrlEncode($redirect_uri))" } 
-    if ( $scope ) { $uri += "&scope=$([System.Web.HttpUtility]::UrlEncode($scope))" }
-    if ( $nonce ) { $uri += "&nonce=$([System.Web.HttpUtility]::UrlEncode($nonce))" }
-    
-    # PKCE for code flows
-    if ( $response_type -notmatch "code" -and $usePkce ) { write-verbose "Invoke-OAuth2AuthorizationRequest: PKCE is not supported for implicit flows." }
-    else { 
-        if ( $usePkce ) {
-            # pkce provided in custom parameters
-            if ( $customParameters -and $customParameters.Keys -match "^code_challenge$" ) {
-                $pkce = @{ code_challenge = $customParameters["code_challenge"] }
-                if ( $customParameters.Keys -match "^code_challenge_method$" ) { $pkce.code_challenge_method = $customParameters["code_challenge_method"] }
-                else { Write-Warning "Invoke-OAuth2AuthorizationRequest: code_challenge_method not specified, defaulting to 'S256'."; $pkce.code_challenge_method = "S256" }
-                if ( $customParameters.Keys -match "^code_verifier$" ) { $pkce.code_verifier = $customParameters["code_verifier"] }
+        # Determine which protocol is being used.
+        if ( $response_type -eq "token" -or ($response_type -match "^code$" -and $scope -notmatch "openid" ) ) { $protocol = "OAUTH"; $nonce = $null }
+        else { $protocol = "OIDC"
+            # ensure scope contains openid for oidc flows
+            if ( $scope -notmatch "openid" ) { Write-Warning "Invoke-OAuth2AuthorizationRequest: Added openid scope to request (OpenID requirement)."; $scope += " openid" }
+            # ensure nonce is present for id_token validation
+            if ( $customParameters -and $customParameters.Keys -match "^nonce$" ) { [string]$nonce = $customParameters["nonce"] }
+            else { [string]$nonce = Get-RandomString -Length ( (32..64) | get-random ) }
+        }
+
+        # state for CSRF protection (optional, but recommended)
+        if ( $customParameters -and $customParameters.Keys -match "^state$" ) { [string]$state = $customParameters["state"] }
+        else { [string]$state = Get-RandomString -Length ( (16..21) | get-random ) }
+        
+        # building the request uri
+        Add-Type -AssemblyName System.Web -ErrorAction Stop
+        $uri += "?response_type=$($response_type)&client_id=$([System.Web.HttpUtility]::UrlEncode($client_id))&state=$([System.Web.HttpUtility]::UrlEncode($state))"
+        if ( $redirect_uri ) { $uri += "&redirect_uri=$([System.Web.HttpUtility]::UrlEncode($redirect_uri))" } 
+        if ( $scope ) { $uri += "&scope=$([System.Web.HttpUtility]::UrlEncode($scope))" }
+        if ( $nonce ) { $uri += "&nonce=$([System.Web.HttpUtility]::UrlEncode($nonce))" }
+        
+        # PKCE for code flows
+        if ( $response_type -notmatch "code" -and $usePkce ) { write-verbose "Invoke-OAuth2AuthorizationRequest: PKCE is not supported for implicit flows." }
+        else { 
+            if ( $usePkce ) {
+                # pkce provided in custom parameters
+                if ( $customParameters -and $customParameters.Keys -match "^code_challenge$" ) {
+                    $pkce = @{ code_challenge = $customParameters["code_challenge"] }
+                    if ( $customParameters.Keys -match "^code_challenge_method$" ) { $pkce.code_challenge_method = $customParameters["code_challenge_method"] }
+                    else { Write-Warning "Invoke-OAuth2AuthorizationRequest: code_challenge_method not specified, defaulting to 'S256'."; $pkce.code_challenge_method = "S256" }
+                    if ( $customParameters.Keys -match "^code_verifier$" ) { $pkce.code_verifier = $customParameters["code_verifier"] }
+                }
+                # generate new pkce challenge
+                else { $pkce = New-PkceChallenge }
+                # add to request uri
+                $uri += "&code_challenge=$($pkce.code_challenge)&code_challenge_method=$($pkce.code_challenge_method)"
             }
-            # generate new pkce challenge
-            else { $pkce = New-PkceChallenge }
-            # add to request uri
-            $uri += "&code_challenge=$($pkce.code_challenge)&code_challenge_method=$($pkce.code_challenge_method)"
         }
+
+        # Add custom parameters to request uri
+        if ( $customParameters ) { 
+            foreach ( $key in ($customParameters.Keys | Where-Object { $_ -notmatch "^nonce$|^state$|^code_(challenge(_method)?$|verifier)$" }) ) { 
+                $urlEncodedValue = [System.Web.HttpUtility]::UrlEncode($customParameters[$key])
+                $urlEncodedKey = [System.Web.HttpUtility]::UrlEncode($key)
+                $uri += "&$urlEncodedKey=$urlEncodedValue"
+            }
+        }
+    }
+    else {
+        # Pushed Authorization request
+        # Assume it is oidc - not sure about that TODO
+        $protocol = "oidc"
+
+        # TODO - make sure redirect_uri and state are provided
+        if ( $customParameters -and $customParameters.Keys -match "^state$" ) { 
+            [string]$state = $customParameters["state"] 
+        }
+
+        $uri += "&client_id=$([System.Web.HttpUtility]::UrlEncode($client_id))"
     }
 
-    # Add custom parameters to request uri
-    if ( $customParameters ) { 
-        foreach ( $key in ($customParameters.Keys | Where-Object { $_ -notmatch "^nonce$|^state$|^code_(challenge(_method)?$|verifier)$" }) ) { 
-            $urlEncodedValue = [System.Web.HttpUtility]::UrlEncode($customParameters[$key])
-            $urlEncodedKey = [System.Web.HttpUtility]::UrlEncode($key)
-            $uri += "&$urlEncodedKey=$urlEncodedValue"
-        }
-    }
     Write-Verbose "Invoke-OAuth2AuthorizationRequest $protocol request uri $uri"
-    
+
     # if form_post: start http.sys listener as job and give it some time to start
     if ( $response_mode -eq "form_post" ) { 
         $uri += "&response_mode=form_post"
@@ -172,6 +191,9 @@ function Invoke-OAuth2AuthorizationEndpoint {
         $webSource = @{ Fragment = $jobData; Query = $null }
     }
 
+    Write-Verbose "WebSource:"
+    Write-Verbose $webSource
+    
     # When the window closes (WebView2), the script will continue and retreive the depending on the response_mode and content.
     if( $webSource.query -match "code=" ) {
         $response = @{}

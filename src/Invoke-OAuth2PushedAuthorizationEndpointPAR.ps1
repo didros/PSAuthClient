@@ -149,6 +149,7 @@ function Invoke-OAuth2PushedAuthorizationEndpoint {
     $payload.body = $requestBody
     write-verbose ($payload | ConvertTo-Json -Compress)
 
+    $response = @{}
     try { $response = Invoke-RestMethod @payload -Verbose:$false }
     catch { throw $_ }
 
@@ -156,6 +157,11 @@ function Invoke-OAuth2PushedAuthorizationEndpoint {
 
     # add expiry datetime
     if ( $response.expires_in ) { $response | Add-Member -NotePropertyName expiry_datetime -TypeName NoteProperty (get-date).AddSeconds($response.expires_in) }
+
+    # add state and nonce
+    $response | Add-Member -NotePropertyName state -NotePropertyValue $state
+    $response | Add-Member -NotePropertyName nonce -NotePropertyValue $nonce
+    $response | Add-Member -NotePropertyName code_verifier -NotePropertyValue $pkce.code_verifier
 
     return $response
 }

@@ -27,6 +27,12 @@ function New-Oauth2JwtAssertion {
     .PARAMETER key_id
     kid, key identifier for assertion header
 
+    .PARAMETER typ
+    typ, type for assertion header. Default to JWT.
+
+    .PARAMETER exp_time
+    Define how long the assertion is valid, in seconds. Default to 300s (5 min).
+
     .PARAMETER client_secret
     clientsecret for HMAC signature
 
@@ -67,6 +73,12 @@ function New-Oauth2JwtAssertion {
         [parameter( Mandatory = $false, ParameterSetName='private_key_jwt', HelpMessage="key identifier for assertion header")]
         $key_id,
 
+        [parameter( Mandatory = $false, ParameterSetName='private_key_jwt', HelpMessage="type for assertion header")]
+        $typ,
+
+        [parameter( Mandatory = $false, ParameterSetName='private_key_jwt', HelpMessage="How long the assetion is valid in sec")]
+        $exp_time=300,
+
         [parameter( Mandatory = $true, ParameterSetName='client_secret_jwt', HelpMessage="ClientSecret")]
         $client_secret
     )
@@ -82,6 +94,15 @@ function New-Oauth2JwtAssertion {
             catch { throw $_ }
         }
         if ( $client_certificate.GetType().Name -match "^X509Certificate" ) { $jwtHeader.x5t = ConvertTo-Base64urlencoding $client_certificate.GetCertHash() }
+    
+        if ( $client_certificate.GetType().Name -match "^FileInfo" ) {
+            # Privat key in file with PEM format
+			$pemKey = [System.IO.File]::ReadAllText($client_certificate)
+			$client_certificate = [Security.Cryptography.RSA]::Create()
+			try { $client_certificate.ImportFromPem($pemKey) }
+            catch { throw $_ }
+		}
+
         if ( $key_id ) { $jwtHeader.kid = $key_id }
     }
     elseif ( $client_secret ) {
@@ -100,7 +121,7 @@ function New-Oauth2JwtAssertion {
     # build assertion payload
     $jwtClaims = @{
         aud = $audience                 # URL of the resource using the JWT to authenticate to
-        exp = (Get-UnixTime) + 300      # expiration time of the token
+        exp = (Get-UnixTime) + $exp_time # expiration time of the token
         jti = $jwtId                    # (optional) unique identifier for the token
         iat = Get-UnixTime              # (optional) time the token was issued
         iss = $issuer                   # issuer of token (client_id)

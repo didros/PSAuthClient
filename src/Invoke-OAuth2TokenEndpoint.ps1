@@ -209,7 +209,18 @@ function Invoke-OAuth2TokenEndpoint {
             try { $client_certificate = Get-Item $client_certificate -ErrorAction Stop }
             catch { throw $_ }
         }
-        $requestBody.client_assertion = (New-Oauth2JwtAssertion -aud $uri -iss $client_id -sub $client_id -client_certificate $client_certificate -ErrorAction Stop).client_assertion_jwt
+
+        if ( $client_certificate.GetType().Name -match "^FileInfo" ) {
+            # Privat key in file with PEM format
+			$pemKey = [System.IO.File]::ReadAllText($client_certificate)
+			$client_certificate = [Security.Cryptography.RSA]::Create()
+			try { $client_certificate.ImportFromPem($pemKey) }
+            catch { throw $_ }
+		}
+        # Fix for HelseID : exp maks 60 sec, aud must be issuer (remove path in the URL)
+        $url = $uri.split("/")
+        $aud = "$($url[0])//$($url[2])"
+        $requestBody.client_assertion = (New-Oauth2JwtAssertion -aud $aud -iss $client_id -sub $client_id -client_certificate $client_certificate -ErrorAction Stop).client_assertion_jwt
     }
     if ( $client_certificate -or $client_auth_method -eq "client_secret_jwt" ) { $requestBody.client_assertion_type = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"}
 
