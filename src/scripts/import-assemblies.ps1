@@ -14,6 +14,13 @@ Join-Path $PSScriptRoot "Microsoft.Web.WebView2.*\runtimes\$runtime\*.dll" -Reso
 }
 # import assemblies
 Join-Path $PSScriptRoot "Microsoft.Web.WebView2.*\$framework\Microsoft.Web.WebView2.*.dll" -Resolve | ForEach-Object {
-    Import-Module $_ -ErrorAction Stop
+#Join-Path 'C:\Users\drossi\source\repos\WindowsFormsSSOApp\bin\Debug' "\Microsoft.Web.WebView2.*.dll" -Resolve | ForEach-Object {
+    try {
+        Import-Module $_ -ErrorAction SilentlyContinue # Stop
+    }
+    catch {
+        Write-Verbose "Already loaded : $_"
+    }
     write-debug "imported assembly $_"
 }
+#[reflection.assembly]::LoadWithPartialName("System.Windows.Forms")

@@ -134,8 +134,31 @@ function New-Oauth2JwtAssertion {
     $jwtAssertion = (ConvertTo-Base64urlencoding $jwtHeader) + "." + (ConvertTo-Base64urlencoding $jwtClaims)
     # assertion signing - cert or secret
     if ( $client_certificate ) {
-        if ( $client_certificate.GetType().Name -match "^X509" ) { $signature = convertTo-Base64urlencoding $client_certificate.PrivateKey.SignData([System.Text.Encoding]::UTF8.GetBytes($jwtAssertion),[Security.Cryptography.HashAlgorithmName]::SHA256,[Security.Cryptography.RSASignaturePadding]::Pkcs1) }
-        elseif ( $client_certificate.GetType().Name -match "^RSA" ) { $signature = convertTo-Base64urlencoding $client_certificate.SignData([System.Text.Encoding]::UTF8.GetBytes($jwtAssertion),[Security.Cryptography.HashAlgorithmName]::SHA256,[Security.Cryptography.RSASignaturePadding]::Pkcs1) }
+        if ( $client_certificate.GetType().Name -match "^X509" ) { 
+            if ( $PSVersionTable.PSEdition -eq "Core" ) { 
+                $signature = convertTo-Base64urlencoding $client_certificate.PrivateKey.SignData([System.Text.Encoding]::UTF8.GetBytes($jwtAssertion),[Security.Cryptography.HashAlgorithmName]::SHA256,[Security.Cryptography.RSASignaturePadding]::Pkcs1) 
+            }
+            else {
+                $params = New-Object System.Security.Cryptography.CspParameters
+                $params.KeyContainerName = $client_certificate.PrivateKey.CspKeyContainerInfo.KeyContainerName
+                # not needed $params.ProviderName = "Microsoft Enhanced RSA and AES Cryptographic Provider"
+                $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider($params)
+                $signature = convertTo-Base64urlencoding $rsa.SignData([System.Text.Encoding]::UTF8.GetBytes($jwtAssertion),"SHA256") 
+            }
+        }
+        elseif ( $client_certificate.GetType().Name -match "^RSA" ) { 
+            if ( $PSVersionTable.PSEdition -eq "Core" ) { 
+                $signature = convertTo-Base64urlencoding $client_certificate.SignData([System.Text.Encoding]::UTF8.GetBytes($jwtAssertion),[Security.Cryptography.HashAlgorithmName]::SHA256,[Security.Cryptography.RSASignaturePadding]::Pkcs1) 
+            }
+            else {
+                # not tested code
+                $params = New-Object System.Security.Cryptography.CspParameters
+                $params.KeyContainerName = $client_certificate.CspKeyContainerInfo.KeyContainerName
+                # not needed $params.ProviderName = "Microsoft Enhanced RSA and AES Cryptographic Provider"
+                $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider($params)
+                $signature = convertTo-Base64urlencoding $rsa.SignData([System.Text.Encoding]::UTF8.GetBytes($jwtAssertion),"SHA256") 
+            }
+        }
     }
     else { 
         $hmacsha = New-Object System.Security.Cryptography.HMACSHA256

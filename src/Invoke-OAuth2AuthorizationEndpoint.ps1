@@ -169,6 +169,7 @@ function Invoke-OAuth2AuthorizationEndpoint {
         uri = $uri
         title = "Authorization code flow"
         UrlCloseConditionRegex = "$($redirect_uri)?.*(?:code=([^&]+)|error=([^&]+))|^$redirect_uri"
+        failoverToWindowsFormsWebBrowser = $false
     }
     if ( $userAgent ) { $webViewParams.userAgent = $userAgent }
     $webSource = Invoke-WebView2 @webViewParams
@@ -190,10 +191,7 @@ function Invoke-OAuth2AuthorizationEndpoint {
         Write-Verbose "Invoke-OAuth2AuthorizationRequest: http.sys form_post request received."
         $webSource = @{ Fragment = $jobData; Query = $null }
     }
-
-    Write-Verbose "WebSource:"
-    Write-Verbose $webSource
-    
+  
     # When the window closes (WebView2), the script will continue and retreive the depending on the response_mode and content.
     if( $webSource.query -match "code=" ) {
         $response = @{}

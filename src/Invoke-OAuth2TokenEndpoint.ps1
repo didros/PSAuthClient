@@ -201,7 +201,7 @@ function Invoke-OAuth2TokenEndpoint {
         switch ( $client_auth_method ) {
             "client_secret_basic" { $payload.headers.Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("$($client_id):$($client_secret)")) }
             "client_secret_post" { $requestBody.client_secret = $client_secret }
-            "client_secret_jwt" { $requestBody.client_assertion = (New-Oauth2JwtAssertion -aud $uri -iss $client_id -sub $client_id -client_secret $client_secret -ErrorAction Stop).client_assertion_jwt }
+            "client_secret_jwt" { $requestBody.client_assertion = (New-Oauth2JwtAssertion -typ 'client-authentication+jwt' -exp_time 60 -aud $uri -iss $client_id -sub $client_id -client_secret $client_secret -ErrorAction Stop).client_assertion_jwt }
         }
     }
     elseif ( $client_certificate) {
@@ -220,7 +220,7 @@ function Invoke-OAuth2TokenEndpoint {
         # Fix for HelseID : exp maks 60 sec, aud must be issuer (remove path in the URL)
         $url = $uri.split("/")
         $aud = "$($url[0])//$($url[2])"
-        $requestBody.client_assertion = (New-Oauth2JwtAssertion -aud $aud -iss $client_id -sub $client_id -client_certificate $client_certificate -ErrorAction Stop).client_assertion_jwt
+        $requestBody.client_assertion = (New-Oauth2JwtAssertion -typ 'client-authentication+jwt' -exp_time 60 -aud $aud -iss $client_id -sub $client_id -client_certificate $client_certificate -ErrorAction Stop).client_assertion_jwt
     }
     if ( $client_certificate -or $client_auth_method -eq "client_secret_jwt" ) { $requestBody.client_assertion_type = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"}
 

@@ -1,4 +1,4 @@
-function Invoke-WebView2 {
+function Invoke-SSOView {
     <#
     .SYNOPSIS
     PowerShell Interactive browser window using WebView2.
@@ -11,9 +11,6 @@ function Invoke-WebView2 {
 
     .PARAMETER UrlCloseConditionRegex
     (optional, default:'error=') - The form will close when the URL matches the regex.
-
-    .PARAMETER failoverToWindowsFormsWebBrowser
-    (optional, defalt:true) - If WebView2 fails to initialize, the form will close and the script will continue using Windows.Forms.WebBrowser (IE11).
 
     .PARAMETER allowSingleSignOnUsingOSPrimaryAccount
     (optional, default:true) Determines whether to enable Single Sign-on with Azure Active Directory (AAD) resources inside WebView using the logged in Windows account.
@@ -43,9 +40,6 @@ function Invoke-WebView2 {
         [parameter( Mandatory = $false, HelpMessage="Form close condition by regex (URL)")]
         [string]$UrlCloseConditionRegex = "error=[^&]*",
 
-        [parameter( Mandatory = $false, HelpMessage="WebView2 failover to System.Windows.Forms.WebBrowser (IE11)")]
-        [bool]$failoverToWindowsFormsWebBrowser = $true,
-
         [parameter( Mandatory = $false, HelpMessage="msSingleSignOnOSForPrimaryAccountIsShared")]
         [bool]$allowSingleSignOnUsingOSPrimaryAccount = $true,
 
@@ -63,57 +57,47 @@ function Invoke-WebView2 {
     
     )
     # https://learn.microsoft.com/en-us/dotnet/api/microsoft.web.webview2.core.corewebview2environmentoptions.allowsinglesignonusingosprimaryaccount?view=webview2-dotnet-1.0.2210.55
+    # This is only working with Entra ID
     if ( $allowSingleSignOnUsingOSPrimaryAccount ) { $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--enable-features=msSingleSignOnOSForPrimaryAccountIsShared" }
     else { $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $null }
+
     # initialize WebView2
     try { 
-        Write-Verbose "Creating webview2"
         $web = New-Object 'Microsoft.Web.WebView2.WinForms.WebView2'
-        Write-Verbose "New-Object Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties"
-        Write-Verbose "Creating Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties"
-        $prop = New-Object 'Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties'
-        Write-Verbose "Adding to it Webview2's CreationProperties"
-        $web.CreationProperties = $prop
-        Write-Verbose "UserDataFolder"
-        $web.CreationProperties.UserDataFolder = "$env:temp\PSAuthClientWebview2Cache\" # "c:\temp\PSAuthClientWebview2Cache\"
-        #$web.CreationProperties.Language = "NO_no"
-        #Write-Verbose " UserDataFolder = $($web.CreationProperties.UserDataFolder) `n Language = $($web.CreationProperties.Language)"
-        #$web.name = "webView"
+        $web.CreationProperties = New-Object 'Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties'
+        $web.CreationProperties.AdditionalBrowserArguments = "";
+        $web.CreationProperties.BrowserExecutableFolder = $null;
+        $web.CreationProperties.IsInPrivateModeEnabled = $false;
+        $web.CreationProperties.Language = "no_NO";
+        $web.CreationProperties.ProfileName = $null;
+        $web.CreationProperties.UserDataFolder = "$env:temp\PSAuthClientWebview2Cache"
         $web.Dock = "Fill"
         $web.source = $uri
-        #if ( $userAgent ) { $web.add_CoreWebView2InitializationCompleted({$web.CoreWebView2.Settings.UserAgent = $userAgent}) }
         $web.Add_CoreWebView2InitializationCompleted({ 
             Write-Verbose "Version webview2: $($web.CoreWebView2.Environment.BrowserVersionString)"
             $web.CoreWebView2.Add_ProcessFailed({ Write-Verbose "ProcessFailed"})
-            if ( $userAgent ) { $web.CoreWebView2.Settings.UserAgent = $userAgent } 
-            })
+            if ( $userAgent ) { $web.CoreWebView2.Settings.UserAgent = $userAgent }
+            <#
+            $p = {
+                hostName = "ssopage"
+                folderPath = "C:\temp"
+                accessKind = [Microsoft.Web.WebView2.Core.CoreWebView2HostResourceAccessKind]::Allow
+            }
+            $p2 = ("ssopage", "c:\temp", [Microsoft.Web.WebView2.Core.CoreWebView2HostResourceAccessKind]::Allow)
+            $web.CoreWebView2.SetVirtualHostNameToFolderMapping($p2)
+            #>
+        })
+
         # close form on completion (match redirectUri) navigation
         $web.Add_SourceChanged( {
-            Write-Verbose "New URI : $($web.source.AbsoluteUri)" 
-            if ( $web.source.AbsoluteUri -match $UrlCloseConditionRegex )  { 
-                Write-Verbose "Close condition detected - closing form (and webview2)"
-                $Form.close() | Out-Null 
-            }
+            if ( $web.source.AbsoluteUri -match $UrlCloseConditionRegex )  { $Form.close() | Out-Null }
         })
-        #$web.Add_NavigationStarting( { Write-Verbose "NavigationStarting" })
-        $web.Add_NavigationCompleted( { Write-Verbose "NavigationCompleted " })
     }
     # if WebView2 fails to initialize, try to use Windows.Forms.WebBrowser
     catch {
-        if ( $failoverToWindowsFormsWebBrowser ) { 
-            Write-Warning "Failed to initialize WebView2, trying to use Windows.Forms.WebBrowser."
-            Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
-            $web = New-Object -TypeName System.Windows.Forms.WebBrowser -Property @{Width = $Width; Height = $Height; Url = $uri }
-            # Close form on completion (match redirectUri) navigation
-            $docCompletedEvent = {
-                if ( $web.Url.AbsoluteUri -match $UrlCloseConditionRegex )  { $form.Close() }
-            }
-            $web.Add_DocumentCompleted($docCompletedEvent)
-            $web.ScriptErrorsSuppressed = $true
-            $title = $title + " [COMPATABILITY MODE]"
+        throw $_
     }
-        else { throw $_ }
-    }
+
     # Create form
     $form = New-Object System.Windows.Forms.Form -Property @{Width=$Width;Height=$Height;Text=$title} -ErrorAction Stop
     # Add the WebBrowser control to the form
@@ -124,22 +108,4 @@ function Invoke-WebView2 {
     $response = $web.Source
     $web.Dispose()
     return $response
-    
-
-    <#
-    # non modal
-    $global:done = $false
-    $form.Add_FormClosed({
-        Write-Verbose "Form closed"
-        $response = $web.Source
-        $web.Dispose()
-        $global:done = $true
-    })
-    $form.Show()
-    
-    while ($true) {
-        Start-Sleep -Milliseconds 100
-        if ($global:done) { return {$response}}
-    }
-    #>
 }
